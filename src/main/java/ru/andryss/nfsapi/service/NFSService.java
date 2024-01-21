@@ -55,7 +55,7 @@ public class NFSService {
     }
 
     public byte[] list(int inode) {
-        ByteBuffer buffer = ByteBuffer.allocate(8 + 4 + 8 * (64 + 4 + 1));
+        ByteBuffer buffer = ByteBuffer.allocate(8 + 4 + 8 * (256 + 4 + 1));
         buffer.order(LITTLE_ENDIAN);
 
         if (!nodeRepository.existsById(inode)) {
@@ -72,8 +72,8 @@ public class NFSService {
         buffer.putInt(nodeList.size());
 
         for (Node node : nodeList) {
-            byte[] name = Arrays.copyOf(node.getName().getBytes(US_ASCII), 64);
-            name[63] = 0;
+            byte[] name = Arrays.copyOf(node.getName().getBytes(US_ASCII), 256);
+            name[255] = 0;
             buffer.put(name);
             buffer.putInt(node.getInode());
             buffer.put(node.getType());
@@ -146,6 +146,55 @@ public class NFSService {
         }
 
         nodeRepository.delete(node);
+
+        buffer.putLong(ErrorCode.OK.getCode());
+        return buffer.array();
+    }
+
+    public byte[] read(int inode) {
+        ByteBuffer buffer = ByteBuffer.allocate(8 + 4 + 1024);
+        buffer.order(LITTLE_ENDIAN);
+
+        Optional<Node> nodeOptional = nodeRepository.findById(inode);
+
+        if (nodeOptional.isEmpty()) {
+            buffer.putLong(ErrorCode.NOT_FOUND.getCode());
+            return buffer.array();
+        }
+
+        Node node = nodeOptional.get();
+
+        if (node.getType() == NodeType.DT_DIR.getValue()) {
+            buffer.putLong(ErrorCode.CONFLICT.getCode());
+            return buffer.array();
+        }
+
+        buffer.putLong(ErrorCode.OK.getCode());
+
+        byte[] content = node.getContent().getBytes(US_ASCII);
+        buffer.putInt(content.length);
+
+        byte[] contentBuffer = Arrays.copyOf(content, 1024);
+        contentBuffer[1023] = 0;
+
+        buffer.put(contentBuffer);
+        return buffer.array();
+    }
+
+    public byte[] write(int inode, String content) {
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        buffer.order(LITTLE_ENDIAN);
+
+        Optional<Node> nodeOptional = nodeRepository.findById(inode);
+
+        if (nodeOptional.isEmpty()) {
+            buffer.putLong(ErrorCode.NOT_FOUND.getCode());
+            return buffer.array();
+        }
+
+        Node node = nodeOptional.get();
+        node.setContent(content);
+        nodeRepository.save(node);
 
         buffer.putLong(ErrorCode.OK.getCode());
         return buffer.array();
